@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+
 a = Analysis(
-    ['autoImageMerge.py'],
+    ['searchPSD.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[ 
-    ],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -19,19 +19,19 @@ exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
-    name='autoImageMerge',
+    name='searchPSD',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    onefile=True,  # 단일 파일로 빌드하기 위해 onefile=True 추가
 )
