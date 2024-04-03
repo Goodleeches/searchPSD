@@ -14,8 +14,9 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from multiprocessing import Manager
 import time
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool, Manager, Lock
 import os
+import logging
 
 def update_log_messages(log_queue):
     while not log_queue.empty():
@@ -54,7 +55,7 @@ def show_selected_image(image):
         print(f"Error displaying image: {e}")
         
 def on_image_selected(event, args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     """ 사용자가 이미지를 선택했을 때 실행되는 함수 """
     selected_index = listbox_image_details.curselection()
     #log_message(f"selected_index: {selected_index}", )
@@ -82,7 +83,7 @@ def on_image_selected(event, args):
 
 
 def show_image_details(event, args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     """ 선택된 경로에 있는 이미지들의 상세 정보를 표시하는 함수 """
     selected_index = listbox_processed_files.curselection()
     if not selected_index:
@@ -95,6 +96,9 @@ def show_image_details(event, args):
 
     listbox_image_details.delete(0, tk.END)
 
+    if not processed_files:
+        return;
+
     if selected_path in processed_files:
         # 유사도에 따라 정렬
         sorted_images = sorted(processed_files[selected_path].items(), key=lambda x: x[1]['similarity'], reverse=True)
@@ -103,25 +107,26 @@ def show_image_details(event, args):
 
 
 
-def start_similarity_check(callback, args):
-    log_queue, processed_files = args
-    print("start_similarity_check: " + str(args))
-    """ 유사도 검사를 시작하는 함수 """
-    for key in list(processed_files.keys()):
-        del processed_files[key]
-    #processed_files = {}  # 리스트 초기화
-    #listbox_processed_files.delete(0, tk.END)
-    log_message("start_similarity_check Start", log_queue=log_queue)
-    if selected_png and selected_folder:
-        process_folder_parallel(selected_png, selected_folder, callback, args)
-        # 유사도에 따라 리스트를 정렬
-        #processed_files.sort(key=lambda x: x[1], reverse=True)
-    else:
-        log_message("PNG 파일 또는 폴더가 선택되지 않았습니다.", log_queue=log_queue)
+# def start_similarity_check(callback, args):
+#     log_queue, processed_files = args
+#     print("start_similarity_check: " + str(args))
+#     """ 유사도 검사를 시작하는 함수 """
+#     if processed_files:
+#         for key in list(processed_files.keys()):
+#             del processed_files[key]
+#     #processed_files = {}  # 리스트 초기화
+#     #listbox_processed_files.delete(0, tk.END)
+#     log_message("start_similarity_check Start", log_queue=log_queue)
+#     if selected_png and selected_folder:
+#         process_folder_parallel(selected_png, selected_folder, callback, args)
+#         # 유사도에 따라 리스트를 정렬
+#         #processed_files.sort(key=lambda x: x[1], reverse=True)
+#     else:
+#         log_message("PNG 파일 또는 폴더가 선택되지 않았습니다.", log_queue=log_queue)
     
-    log_message("start_similarity_check End", log_queue=log_queue)    
-    show_processed_files(args)
-    callback()  # 작업 완료 후 콜백 함수 호출
+#     log_message("start_similarity_check End", log_queue=log_queue)    
+#     show_processed_files(args)
+#     callback()  # 작업 완료 후 콜백 함수 호출
     
 def on_similarity_check_completed():
     """유사도 검사 완료 후 실행될 콜백 함수"""
@@ -139,7 +144,7 @@ def on_similarity_check_completed():
 #     #threading.Thread(target=lambda: start_similarity_check(on_similarity_check_completed)).start()
 
 def show_processed_files(args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     if processed_files:
         log_message(f"processed_files Size:", len(processed_files), log_queue=log_queue)
     else:
@@ -148,15 +153,21 @@ def show_processed_files(args):
     
     highest_similarity_per_path = []
     for path, images in processed_files.items():
+        log_message(f"compute highest_similarity_per_path", log_queue=log_queue)
+        log_message(f"show_processed_files path: " + str(path), log_queue=log_queue)
+        log_message(f"show_processed_files images: " + str(images), log_queue=log_queue)
         highest_similarity = 0
         selected_image = None
         for image_name, image_info in images.items():
+            log_message(f"show_processed_files image_name: " + str(image_name), log_queue=log_queue)
+            log_message(f"show_processed_files image_info: " + str(image_info), log_queue=log_queue)
             x = image_info["similarity"]
             log_message(f"{path} ------ {image_name} ---- Similarity: {x}", log_queue=log_queue)
             if image_info["similarity"] > highest_similarity:
                 highest_similarity = image_info["similarity"]
                 selected_image = (path, image_name, highest_similarity)
         if selected_image:
+            log_message(f"append highest_similarity_per_path", log_queue=log_queue)
             highest_similarity_per_path.append(selected_image)
         
     sorted_by_similarity = sorted(highest_similarity_per_path, key=lambda x: x[2], reverse=True)
@@ -237,7 +248,7 @@ def merge_group_layers(psd, group, base_path, group_name=''):
 
 
 def process_psd_file(psd_file_path, compare_with, args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     """ PSD 파일을 처리하는 함수 """
     safe_psd_file_path = safe_path(psd_file_path)
     if not safe_psd_file_path:
@@ -255,7 +266,7 @@ def process_psd_file(psd_file_path, compare_with, args):
             #log_message("################# Merge #################")
             merged_image_name = f"{layer.name}.png"
             #merged_image.save(merged_image_name)
-            compare_images_in_memory(compare_with, merged_image, safe_psd_file_path, merged_image_name)
+            compare_images_in_memory(compare_with, merged_image, safe_psd_file_path, merged_image_name, lock)
     
     max_width = psd.width
     max_height = psd.height
@@ -266,7 +277,7 @@ def process_psd_file(psd_file_path, compare_with, args):
     #log_message("################# Merged Merge #################")
     merged_image_name_Merged = f"{layer.name}_Merged.png"
     #empty_image.save(merged_image_name_Last)
-    compare_images_in_memory(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged)     
+    compare_images_in_memory(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged, lock)     
     merged_image_name_Merged_Template = f"{layer.name}_Search_In_Merged_Template_Image.png"  
     position, value = find_template_in_image(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged_Template, args);
     
@@ -289,7 +300,15 @@ def select_file():
     if file_path:
         global selected_png
         selected_png = file_path
-        label_selected_file.config(text=f"Selected PNG File: {file_path}")
+        message = f"Selected PNG File: {file_path}"
+        if len(message) > 50:
+            split_point = len(message) // 2
+            nearest_space = message.rfind(' ', 0, split_point)
+            if nearest_space != -1:
+                message = message[:nearest_space] + '\n' + message[nearest_space+1:]
+            else:
+                message = message[:split_point] + '\n' + message[split_point:]
+        label_selected_file.config(text=message)
         
         # 선택한 이미지를 우측 하단에 표시
         try:
@@ -314,7 +333,15 @@ def select_folder():
     if folder_path:
         global selected_folder
         selected_folder = folder_path
-        label_selected_folder.config(text=f"Selected Folder: {folder_path}")
+        message = f"Selected Folder: {folder_path}"
+        if len(message) > 50:
+            split_point = len(message) // 2
+            nearest_space = message.rfind(' ', 0, split_point)
+            if nearest_space != -1:
+                message = message[:nearest_space] + '\n' + message[nearest_space+1:]
+            else:
+                message = message[:split_point] + '\n' + message[split_point:]
+        label_selected_folder.config(text=message)    
         #process_folder(selected_png, folder_path)
     else:
         label_selected_folder.config(text="No folder selected.")
@@ -327,7 +354,7 @@ def select_folder():
 #             compare_images(png_file, image_path)
 
 def process_folder(png_file, folder_path, args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     """ 지정된 폴더 및 하위 폴더에 있는 모든 파일을 처리합니다. """
     for root, dirs, files in os.walk(folder_path):
         for filename in files:
@@ -335,7 +362,7 @@ def process_folder(png_file, folder_path, args):
             if filename.endswith(".psd"):
                 process_psd_file(file_path, png_file, args)
             elif filename.endswith((".png", ".jpg", ".jpeg")):
-                compare_images_pil(png_file, file_path, filename)
+                compare_images_pil(png_file, file_path, filename, lock)
 
 
 
@@ -349,19 +376,50 @@ def imread_unicode(filename, flags=cv2.IMREAD_COLOR):
         print(e)
         return None
 
-def update_dict(my_dict, path, imageName, image, similarity):
-    if path not in my_dict:
-        my_dict[path] = {}
+def update_dict(processed_files, lock, path, imageName, image, similarity):
+    with lock:
+        if path not in processed_files:
+            print("processed_files size: " + str(len(processed_files)));
+            processed_files[path] = {}
+            print("processed_files size: " + str(len(processed_files)));
 
-    if imageName not in my_dict[path]:
-        my_dict[path][imageName] = {"similarity": similarity, "image": image}
+        if imageName not in processed_files[path]:
+            print("==================================");
+            print("update_dict path: " + str(path));
+            print("update_dict imageName: " + str(imageName));
+            print("update_dict image: " + str(image));
+            print("update_dict similarity: " + str(similarity));
+            print("==================================");
+            temp = processed_files[path]
+            temp[imageName] = {"similarity": similarity, "image": image}
+            #print(temp[imageName])
+            #print(temp)
+            processed_files[path] = temp  # 변경 사항을 명시적으로 동기화
+            print(processed_files[path])
+            print("==================================");
+            #processed_files[path][imageName] = {"similarity": similarity, "image": image}
+        
+        
+            #print("update_dict processed_files: " + str(processed_files[path][imageName]));
+        for imageName in processed_files[path]:
+            info = processed_files[path][imageName]
+            print(f"Image Name: {imageName}, Similarity: {info['similarity']}, Image: {info['image']}")
+      
+        # if(processed_files[path][imageName]):
+        #     pass
+        # else:
+        #     print("update_dict processed_files empty")
+        # print("update_dict processed_files path: " + str(path))
+        # for name, data in processed_files[path].items():  # 루프 변수 이름 변경
+        #     print("update_dict processed_files imageName: " + str(name))  # 변수 이름 변경
+        #     print("update_dict processed_files data: " + str(data))
     
 def update_dict_if_higher(my_dict, key, new_value):
     if key not in my_dict or my_dict[key] < new_value:
         my_dict[key] = new_value    
 
 def find_template_in_image(image_path, mergedImage, PsdPath, NamePath, args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     # 원본 이미지를 로드합니다.
     main_image = imread_unicode(image_path)
     main_image_gray = cv2.cvtColor(main_image, cv2.COLOR_BGR2GRAY)
@@ -396,7 +454,7 @@ def find_template_in_image(image_path, mergedImage, PsdPath, NamePath, args):
     
     similarity = max_val;
     #listbox_processed_files.insert(tk.END, f"{image2_path} - Last Similarity: {similarity:.2f}")
-    update_dict(processed_files, PsdPath, NamePath, mergedImage, similarity);
+    update_dict(processed_files, lock, PsdPath, NamePath, mergedImage, similarity);
     
     return top_left, max_val
 
@@ -454,7 +512,7 @@ def calculate_ssim(image1, image2):
 
     return ssim
 
-def compare_images_in_memory(image1_path, image2, PsdPath, NamePath):
+def compare_images_in_memory(image1_path, image2, PsdPath, NamePath, lock):
     """PIL과 scikit-image를 사용하여 두 이미지의 유사도를 비교하는 함수"""
     image1_origin, image1_gray = check_and_load_image_pil(image1_path)
     
@@ -483,7 +541,7 @@ def compare_images_in_memory(image1_path, image2, PsdPath, NamePath):
     #processed_files.append((psd_file_path, similarity))
     #listbox_processed_files.insert(tk.END, f"{psd_file_path} - Similarity: {similarity:.2f}")
     #update_dict_if_higher(processed_files, PsdPath, similarity);
-    update_dict(processed_files, PsdPath, NamePath, none_convert, similarity);
+    update_dict(processed_files, lock, PsdPath, NamePath, none_convert, similarity);
     #merged_image_name = f"{safe_psd_file_path}_{layer.name}.png"
     merged_resize_image1_name = f"{PsdPath}_resize_1.png"
     merged_resize_image2_name = f"{PsdPath}_resize_2.png"
@@ -491,7 +549,7 @@ def compare_images_in_memory(image1_path, image2, PsdPath, NamePath):
     # image1_resized.save(merged_resize_image1_name);
     # image2_resized.save(merged_resize_image2_name);
 
-def compare_images_pil(image1_path, image2_path, ImageName):
+def compare_images_pil(image1_path, image2_path, ImageName, processed_files, lock):
     """ PIL과 scikit-image를 사용하여 두 이미지의 유사도를 비교하는 함수 """
     image1_origin, image1_gray = check_and_load_image_pil(image1_path)
     image2_origin, image2_gray = check_and_load_image_pil(image2_path)
@@ -515,13 +573,13 @@ def compare_images_pil(image1_path, image2_path, ImageName):
     #processed_files.append((image2_path, similarity))
     #listbox_processed_files.insert(tk.END, f"{image2_path} - Similarity: {similarity:.2f}")
     #update_dict_if_higher(processed_files, image2_path, similarity);
-    update_dict(processed_files, image2_path, ImageName, image2_origin, similarity);
+    update_dict(processed_files, lock, image2_path, ImageName, image2_origin, similarity);
     
 def update_thread_count():
     """현재 활성화된 스레드 개수를 업데이트하는 함수"""
     #label_threads_count.config(text=f"Active threads: {active_threads}") 
-def process_file(png_file, file_path, log_queue, processed_files):
-    args = (log_queue, processed_files)
+def process_file(png_file, file_path, log_queue, processed_files, lock):
+    args = (log_queue, processed_files, lock)
     print("process_file: " + str(processed_files))
     #print("process_file Start")
     if file_path.endswith(".psd"):
@@ -531,22 +589,22 @@ def process_file(png_file, file_path, log_queue, processed_files):
     elif file_path.endswith((".png", ".jpg", ".jpeg")):
         print("is image")
         log_message(file_path, log_queue=log_queue)       
-        compare_images_pil(png_file, file_path, os.path.basename(file_path))
+        compare_images_pil(png_file, file_path, os.path.basename(file_path), processed_files, lock)
     log_message("process_file End", log_queue=log_queue)       
 
 def process_file_wrapper(args_tuple):
     # args_tuple에서 png_file, file_path, 그리고 args (log_queue, processed_files)를 분리합니다.
-    png_file, file_path, log_queue, processed_files = args_tuple
+    png_file, file_path, log_queue, processed_files, lock = args_tuple
     # 분리된 인자를 process_file 함수에 전달합니다.
     #print("process_file_wrapper: " + str(args));
-    process_file(png_file, file_path, log_queue, processed_files)
+    process_file(png_file, file_path, log_queue, processed_files, lock)
     
 def process_folder_parallel(png_file, folder_path, on_all_threads_completed, args):
     availableProcess = os.cpu_count()
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     print("process_folder_parallel: " + str(processed_files))
     # 각 파일 경로마다 필요한 인자를 튜플로 묶습니다. (png_file, file_path, log_queue, processed_files)
-    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files) 
+    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files, lock) 
                   for root, _, files in os.walk(folder_path) 
                   for filename in files if filename.endswith((".psd", ".png", ".jpg", ".jpeg"))]
 
@@ -609,7 +667,7 @@ def process_folder_parallel(png_file, folder_path, on_all_threads_completed, arg
     #     label_status.config(text="Complete")  # 모든 작업 완료
 
 def on_all_threads_completed(args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     """모든 스레드가 완료된 후 실행할 함수"""
     log_message("show_processed_files.", log_queue=log_queue)
     show_processed_files(args)
@@ -621,15 +679,19 @@ def on_all_threads_completed(args):
     # 여기에 필요한 모든 완료 후 처리 로직을 추가합니다.
     progress_bar.stop()  # 프로그레스 바 정지
     progress_bar.pack_forget()  # 프로그레스 바 숨김
+    #button_start_check.config(state=tk.NORMAL)
+
 
 def threaded_similarity_check(args):
-    log_queue, processed_files = args
+    log_queue, processed_files, lock = args
     print("threaded_similarity_check:" + str(processed_files))
     """유사도 검사를 별도의 스레드에서 실행하는 함수 (병렬 처리)"""
     if not selected_png or not selected_folder:
         log_message("PNG 파일 또는 폴더가 선택되지 않았습니다.", log_queue=log_queue)
         return
-
+    
+    processed_files.clear()
+    listbox_processed_files.delete(0, tk.END)
     progress_bar.pack()  # 프로그레스 바 표시
     progress_bar.start()  # 프로그레스 바 시작
     # 병렬 처리 함수 실행 및 완료 후 콜백 전달
@@ -665,11 +727,11 @@ def threaded_similarity_check(args):
 # Tkinter GUI 설정
 if __name__ == "__main__":
     manager = Manager()
+    lock = manager.Lock()
     last_path_select = None;
     #last_path_select = manager.Value('S', None)
     processed_files = manager.dict()  # 프로세스 간 공유되는 딕셔너리
     log_queue = manager.Queue()
-
     #active_threads = 0
     availableProcess = os.cpu_count()          # CPU 전체개수 조회
     # processPool = ProcessPoolExecutor(availableProcess)     # 사용할 CPU 개수 설정, 논리(logical) CPU당 하나의 worker 
@@ -718,14 +780,19 @@ if __name__ == "__main__":
     button_select_folder.pack()
 
     # 먼저 log_queue와 processed_files를 포함하는 args 튜플 생성
-    args = (log_queue, processed_files)
+    args = (log_queue, processed_files, lock)
     print("init: " + str(processed_files));
     print("init: " + str(log_queue));
     # threaded_similarity_check 함수를 args와 함께 호출하는 래퍼 함수 정의
     def threaded_similarity_check_with_args():
+        logging.debug("threaded_similarity_check_with_args start")
+        print("threaded_similarity_check_with_args start")
+        #button_start_check.config(state=tk.DISABLED)
         print("threaded_similarity_check_with_args: " + str(processed_files));
         print("threaded_similarity_check_with_args: " + str(log_queue));
         threaded_similarity_check(args)
+        logging.debug("threaded_similarity_check_with_args end")
+        print("threaded_similarity_check_with_args end")
 
     # Button에 래퍼 함수를 command로 설정
     button_start_check = tk.Button(tkRoot, text="Start Similarity Check", command=threaded_similarity_check_with_args)
@@ -752,6 +819,6 @@ if __name__ == "__main__":
     #log_message("Default encoding:", sys.getdefaultencoding())
     
     # 로그 메시지를 업데이트하는 함수를 Tkinter 메인 루프에 등록합니다.
-    #tkRoot.after(1000, lambda: update_log_messages(log_queue))
+    tkRoot.after(1000, lambda: update_log_messages(log_queue))
 
     tkRoot.mainloop()
