@@ -23,7 +23,7 @@ import psutil
 from tkinter import messagebox
 import subprocess
 import copy
-from tkinterdnd2 import DND_FILES, TkinterDnD
+#from tkinterdnd2 import DND_FILES, TkinterDnD
 
 def update_listbox_from_queue():
     while not update_listbox_queue.empty():
@@ -871,15 +871,15 @@ if __name__ == "__main__":
     #active_threads = 0
     availableProcess = os.cpu_count()          # CPU 전체개수 조회
     # processPool = ProcessPoolExecutor(availableProcess)     # 사용할 CPU 개수 설정, 논리(logical) CPU당 하나의 worker 
-    tkRoot = TkinterDnD.Tk()
+    tkRoot = tk.Tk()
     tkRoot.title("Image Similarity Checker")
     
      # TkinterDnD를 사용하여 root 생성
     #root = TkinterDnD.Tk()
 
     # 드래그 앤 드롭 이벤트를 위한 설정
-    tkRoot.drop_target_register(DND_FILES)
-    tkRoot.dnd_bind('<<Drop>>', on_drop)   
+    # tkRoot.drop_target_register(DND_FILES)
+    # tkRoot.dnd_bind('<<Drop>>', on_drop)   
     # paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
     # paned_window.pack(fill=tk.BOTH, expand=True)
 
