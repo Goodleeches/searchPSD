@@ -2,12 +2,12 @@
 
 
 a = Analysis(
-    ['searchPSD.py'],
+    ['myproject\\myproject.py'],
     pathex=[],
     binaries=[],
     datas=[],
     hiddenimports=[],
-    hookspath=[],
+    hookspath=['.'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
@@ -21,7 +21,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='searchPSD',
+    name='myproject',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
