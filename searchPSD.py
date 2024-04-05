@@ -126,14 +126,22 @@ def show_processed_files(args, merged_dict):
     # 기존 Listbox 아이템을 모두 삭제하고 새 목록을 추가
     log_message(f"listbox_processed_files.delete")
     listbox_processed_files.delete(0, tk.END)
-     # 예외 처리 추가
-    try:
-        log_message(f"listbox_processed_files.insert s")
-        listbox_processed_files.insert(tk.END, *listbox_items)
-        log_message(f"listbox_processed_files.insert e")
-    except Exception as e:
-        log_message(f"Error while inserting into listbox: {e}", log_queue=log_queue)
-        # 사용자에게 오류 메시지를 표시하거나 다른 처리를 수행할 수 있는 부분
+    for i, item in enumerate(listbox_items):
+        try:
+            listbox_processed_files.insert(tk.END, item)
+            log_message(f"Inserted item {i}: {item}")
+        except Exception as e:
+            log_message(f"Error inserting item {i}: {e}", log_queue=log_queue)
+            break  # 오류 발생 시 반복 중단
+    #  # 예외 처리 추가
+    # try:
+    #     log_message(f"listbox_processed_files.insert s")
+    #     log_message(f"ListBox: " + str(listbox_items))
+    #     listbox_processed_files.insert(tk.END, *listbox_items)
+    #     log_message(f"listbox_processed_files.insert e")
+    # except Exception as e:
+    #     log_message(f"Error while inserting into listbox: {e}", log_queue=log_queue)
+    #     # 사용자에게 오류 메시지를 표시하거나 다른 처리를 수행할 수 있는 부분
         
 def safe_path(path):
     """ 파일 경로에서 비-ASCII 문자를 그대로 유지하고, 파일 존재 여부를 확인하는 함수 """
@@ -270,11 +278,11 @@ def process_psd_preview(psd_file_path, compare_with, args):
 def select_file():
     """ Let the user select a PNG file. """
     file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
-    file_path = os.path.normpath(file_path)
     if file_path:
+        file_path = os.path.normpath(file_path)
         global selected_png
         selected_png = file_path
-        message = f"Selected PNG File: {file_path}"
+        message = f"Selected Png File: {file_path}"
         if len(message) > 50:
             split_point = len(message) // 2
             nearest_space = message.rfind(' ', 0, split_point)
@@ -295,25 +303,30 @@ def select_file():
             select_image_label.config(image=tk_image)
             select_image_label.image = tk_image  # 참조를 유지하기 위해 이렇게 설정
         except Exception as e:
-            log_message(f"Error displaying selected PNG image: {e}")
+            log_message(f"Error displaying selected Png image: {e}")
     else:
         label_selected_file.config(text="No file selected.")
 
 def select_folder():
-    """ Let the user select a folder. """
+    """ Let the user select a folder and display the count of image and PSD files. """
     folder_path = filedialog.askdirectory()
-    folder_path = os.path.normpath(folder_path)
     if folder_path:
+        folder_path = os.path.normpath(folder_path)
         global selected_folder
         selected_folder = folder_path
-        message = f"Selected Folder: {folder_path}"
-        if len(message) > 50:
-            split_point = len(message) // 2
-            nearest_space = message.rfind(' ', 0, split_point)
-            if nearest_space != -1:
-                message = message[:nearest_space] + '\n' + message[nearest_space+1:]
-            else:
-                message = message[:split_point] + '\n' + message[split_point:]
+
+        # 파일 수 계산
+        image_count = 0
+        psd_count = 0
+        for root, dirs, files in os.walk(selected_folder):
+            for file in files:
+                if file.lower().endswith((".png", ".jpg", ".jpeg")):
+                    image_count += 1
+                elif file.lower().endswith(".psd"):
+                    psd_count += 1
+
+        # 정보 업데이트
+        message = f"Selected Folder: {folder_path}\nImage files: {image_count}\nPSD files: {psd_count}"
         label_selected_folder.config(text=message)    
     else:
         label_selected_folder.config(text="No folder selected.")
@@ -554,7 +567,7 @@ def process_folder_parallel(png_file, folder_path, on_all_threads_completed, arg
     with Pool(processes=availableProcess) as pool:
         results = pool.starmap_async(process_file_wrapper, file_paths)
         local_processed_files_list = results.get()  # 모든 작업이 완료될 때까지 기다린 후 결과 수집
-    log_message("local_processed_files_list = results")
+    log_message("process_folder_parallel = finish")
     # 결과 병합
     # 빈 딕셔너리를 생성합니다.
     global merged_dict
@@ -562,16 +575,11 @@ def process_folder_parallel(png_file, folder_path, on_all_threads_completed, arg
 
     # 리스트 안의 모든 딕셔너리를 순회합니다.
     for local_dict in local_processed_files_list:
-        # 각 딕셔너리의 키-값 쌍을 merged_dict에 추가합니다.
         for key, value in local_dict.items():
             if key not in merged_dict:
                 merged_dict[key] = value
             else:
-                # 이미 키가 존재하는 경우, 더 복잡한 로직으로 처리가 필요할 수 있습니다.
-                # 예를 들어, 값들을 합치거나, 리스트로 관리하는 등의 방법이 있습니다.
-                # 여기서는 단순히 값을 업데이트하는 방식을 사용합니다.
                 merged_dict[key].update(value)
-    log_message("Merge dict")
     on_all_threads_completed(args, merged_dict)
     
 def fast_process_file(png_file, file_path, log_queue, processed_files, lock):
@@ -604,27 +612,18 @@ def fast_process_folder_parallel(png_file, folder_path, on_all_threads_completed
     with Pool(processes=availableProcess) as pool:
         results = pool.starmap_async(fast_process_file_wrapper, file_paths)
         local_processed_files_list = results.get()  # 모든 작업이 완료될 때까지 기다린 후 결과 수집
-
+    log_message("fast_process_folder_parallel = finish")
     # 결과 병합
     # 빈 딕셔너리를 생성합니다.
     global merged_dict
     merged_dict = {}
 
-    # 리스트 안의 모든 딕셔너리를 순회합니다.
     for local_dict in local_processed_files_list:
-        # 각 딕셔너리의 키-값 쌍을 merged_dict에 추가합니다.
         for key, value in local_dict.items():
             if key not in merged_dict:
                 merged_dict[key] = value
             else:
-                # 이미 키가 존재하는 경우, 더 복잡한 로직으로 처리가 필요할 수 있습니다.
-                # 예를 들어, 값들을 합치거나, 리스트로 관리하는 등의 방법이 있습니다.
-                # 여기서는 단순히 값을 업데이트하는 방식을 사용합니다.
                 merged_dict[key].update(value)
-
-    # 병합된 딕셔너리를 processed_files에 할당합니다.
-    #processed_files = merged_dict
-    # 병합된 결과를 사용하여 추가 작업 수행
     on_all_threads_completed(args, merged_dict)
     
 def on_all_threads_completed(args, merged_dict):
@@ -642,6 +641,7 @@ def on_all_threads_completed(args, merged_dict):
     button_stop_processing.config(state=tk.DISABLED)
 
 def threaded_similarity_check(args):
+    global selected_png, selected_folder
     if not selected_png or not selected_folder:
         log_message("PNG or folder not selected.", log_queue=log_queue)
         return    
@@ -664,6 +664,7 @@ def threaded_similarity_check(args):
     progress_bar.start()  # 프로그레스 바 시작
     
 def fast_threaded_similarity_check(args):
+    global selected_png, selected_folder
     if not selected_png or not selected_folder:
         log_message("PNG or folder not selected.", log_queue=log_queue)
         return
@@ -747,6 +748,8 @@ if __name__ == "__main__":
     manager = Manager()
     lock = manager.Lock()
     last_path_select = None;
+    selected_png = ""
+    selected_folder = ""
     #last_path_select = manager.Value('S', None)
     processed_files = manager.dict()  # 프로세스 간 공유되는 딕셔너리
     log_queue = manager.Queue()
@@ -785,7 +788,7 @@ if __name__ == "__main__":
     label_selected_file.pack()
 
     # Button to select a PNG file
-    button_select_file = tk.Button(tkRoot, text="Select PNG File", command=select_file)
+    button_select_file = tk.Button(tkRoot, text="Select png File", command=select_file)
     button_select_file.pack()
 
     # Label for the selected folder
