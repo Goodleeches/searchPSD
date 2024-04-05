@@ -23,6 +23,7 @@ import psutil
 from tkinter import messagebox
 import subprocess
 import copy
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 def update_listbox_from_queue():
     while not update_listbox_queue.empty():
@@ -283,7 +284,7 @@ def process_psd_file(psd_file_path, compare_with, args):
     return ret
     
 def process_psd_preview(psd_file_path, compare_with, args):
-    log_queue, processed_files, lock, update_listbox_queue = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     """ PSD 파일의 미리보기 이미지를 처리하는 함수 """
     safe_psd_file_path = safe_path(psd_file_path)
     if not safe_psd_file_path:
@@ -305,7 +306,38 @@ def process_psd_preview(psd_file_path, compare_with, args):
     except Exception as e:
         log_message(f"Failed to process PSD file: {safe_psd_file_path}. Error: {e}", log_queue=log_queue)
     
-    
+def on_drop(event):
+    """ Let the user select a PNG file. """
+    file_path = event.data
+    if file_path:
+        file_path = os.path.normpath(file_path)
+        global selected_png
+        selected_png = file_path
+        message = f"Selected Png File: {file_path}"
+        if len(message) > 50:
+            split_point = len(message) // 2
+            nearest_space = message.rfind(' ', 0, split_point)
+            if nearest_space != -1:
+                message = message[:nearest_space] + '\n' + message[nearest_space+1:]
+            else:
+                message = message[:split_point] + '\n' + message[split_point:]
+        label_selected_file.config(text=message)
+        
+        # 선택한 이미지를 우측 하단에 표시
+        try:
+            # 이미지 로드 및 Tkinter 포맷으로 변환
+            pil_image = Image.open(file_path)  # PIL로 이미지를 로드
+            pil_image = pil_image.resize((250, 250))  # 이미지 크기 조정
+            tk_image = ImageTk.PhotoImage(pil_image)
+
+            # 이미지를 표시할 Label 위젯에 이미지 표시
+            select_image_label.config(image=tk_image)
+            select_image_label.image = tk_image  # 참조를 유지하기 위해 이렇게 설정
+        except Exception as e:
+            log_message(f"Error displaying selected Png image: {e}")
+    else:
+        label_selected_file.config(text="No file selected.")
+            
 def select_file():
     """ Let the user select a PNG file. """
     file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
@@ -821,7 +853,7 @@ def show_value(val):
     print("Selected Value:", val)
         
 # Tkinter GUI 설정
-if __name__ == "__main__":
+if __name__ == "__main__":   
     multiprocessing.freeze_support()
     merged_dict ={};
     manager = Manager()
@@ -839,9 +871,15 @@ if __name__ == "__main__":
     #active_threads = 0
     availableProcess = os.cpu_count()          # CPU 전체개수 조회
     # processPool = ProcessPoolExecutor(availableProcess)     # 사용할 CPU 개수 설정, 논리(logical) CPU당 하나의 worker 
-    tkRoot = tk.Tk()
+    tkRoot = TkinterDnD.Tk()
     tkRoot.title("Image Similarity Checker")
     
+     # TkinterDnD를 사용하여 root 생성
+    #root = TkinterDnD.Tk()
+
+    # 드래그 앤 드롭 이벤트를 위한 설정
+    tkRoot.drop_target_register(DND_FILES)
+    tkRoot.dnd_bind('<<Drop>>', on_drop)   
     # paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
     # paned_window.pack(fill=tk.BOTH, expand=True)
 
