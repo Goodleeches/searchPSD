@@ -24,6 +24,32 @@ from tkinter import messagebox
 import subprocess
 import copy
 
+def update_listbox_from_queue():
+    while not update_listbox_queue.empty():
+        merged_dict = update_listbox_queue.get()
+        if not merged_dict or len(merged_dict) == 0:
+            pass
+        else:
+            highest_similarity_per_path = []
+            for path, images in merged_dict.items():
+                highest_similarity = max(images.items(), key=lambda x: x[1]["similarity"])
+                highest_similarity_per_path.append((path, *highest_similarity))
+
+            sorted_by_similarity = sorted(highest_similarity_per_path, key=lambda x: x[2]["similarity"], reverse=True)
+
+            listbox_items = [f"{path}  -  Similarity: {image_info['similarity']:.2f}" 
+                            for path, image_name, image_info in sorted_by_similarity]
+
+            for i, item in enumerate(listbox_items):
+                try:
+                    listbox_processed_files.insert(tk.END, item)
+                    log_message(f"Inserted item {i}: {item}")
+                except Exception as e:
+                    log_message(f"Error inserting item {i}: {e}", log_queue=log_queue)
+                    break  
+            
+    tkRoot.after(1000, lambda: update_listbox_from_queue())
+
 def update_process(files_processed, total_files):
     progress_label.config(text=f"Progress: {files_processed.value}/{total_files.value}")
     tkRoot.update_idletasks()
@@ -68,7 +94,7 @@ def show_selected_image(image):
         log_message(f"Error displaying image: {e}")
         
 def on_image_selected(event, args):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     """ 사용자가 이미지를 선택했을 때 실행되는 함수 """
     selected_index = listbox_image_details.curselection()
     #log_message(f"selected_index: {selected_index}", )
@@ -85,7 +111,7 @@ def on_image_selected(event, args):
 
 
 def show_image_details(event, args):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     """ 선택된 경로에 있는 이미지들의 상세 정보를 표시하는 함수 """
     global merged_dict
     
@@ -110,7 +136,7 @@ def show_image_details(event, args):
             listbox_image_details.insert(tk.END, f"{image_name}  -  Similarity: {image_info['similarity']:.2f}")
 
 def show_processed_files(args, merged_dict):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     
     if not merged_dict or len(merged_dict) == 0:
         log_message(f"processed_files Size: empty", log_queue=log_queue)
@@ -211,7 +237,7 @@ def merge_group_layers(psd, group, base_path, group_name=''):
 
 
 def process_psd_file(psd_file_path, compare_with, args):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     """ PSD 파일을 처리하는 함수 """
     safe_psd_file_path = safe_path(psd_file_path)
     if not safe_psd_file_path:
@@ -230,7 +256,7 @@ def process_psd_file(psd_file_path, compare_with, args):
             log_message("Merge")
             merged_image_name = f"{layer.name}.png"
             #merged_image.save(merged_image_name)
-            result = compare_images_in_memory(compare_with, merged_image, safe_psd_file_path, merged_image_name, processed_files, scale_value)
+            result = compare_images_in_memory(compare_with, merged_image, safe_psd_file_path, merged_image_name, processed_files, scale_value, lock, update_listbox_queue)
             for path, data in result.items():
                 if path in ret:
                     ret[path].update(data)
@@ -246,7 +272,7 @@ def process_psd_file(psd_file_path, compare_with, args):
     log_message("Merged Merge")
     merged_image_name_Merged = f"{layer.name}_Merged.png"
     #empty_image.save(merged_image_name_Last)
-    compare_images_in_memory(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged, processed_files, scale_value)     
+    compare_images_in_memory(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged, processed_files, scale_value, lock, update_listbox_queue)     
     merged_image_name_Merged_Template = f"{layer.name}_Search_In_Merged_Template_Image.png"  
     result = find_template_in_image(compare_with, empty_image, safe_psd_file_path, merged_image_name_Merged_Template, args);
     for path, data in result.items():
@@ -257,7 +283,7 @@ def process_psd_file(psd_file_path, compare_with, args):
     return ret
     
 def process_psd_preview(psd_file_path, compare_with, args):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, lock, update_listbox_queue = args
     """ PSD 파일의 미리보기 이미지를 처리하는 함수 """
     safe_psd_file_path = safe_path(psd_file_path)
     if not safe_psd_file_path:
@@ -274,7 +300,7 @@ def process_psd_preview(psd_file_path, compare_with, args):
         # preview_image.save(preview_image_name)
 
         # 미리보기 이미지와 비교 이미지를 메모리 상에서 비교
-        return compare_images_in_memory(compare_with, preview_image, safe_psd_file_path, "Preview_Image", processed_files, scale_value)
+        return compare_images_in_memory(compare_with, preview_image, safe_psd_file_path, "Preview_Image", processed_files, scale_value, lock, update_listbox_queue)
 
     except Exception as e:
         log_message(f"Failed to process PSD file: {safe_psd_file_path}. Error: {e}", log_queue=log_queue)
@@ -349,8 +375,8 @@ def imread_unicode(filename, flags=cv2.IMREAD_COLOR):
         log_message(e)
         return None
 
-# def update_dict(processed_files, scale_value, path, imageName, image, similarity):
-#     with scale_value:
+# def update_dict(processed_files, lock, path, imageName, image, similarity):
+#     with lock:
 #         if path not in processed_files:
 #             log_message("processed_files size: " + str(len(processed_files)));
 #             processed_files[path] = {}
@@ -370,11 +396,12 @@ def imread_unicode(filename, flags=cv2.IMREAD_COLOR):
 #             log_message(processed_files[path])
 #             log_message("==================================");      
             
-def update_dict(processed_files, scale_value, path, imageName, image, similarity):
+def update_dict(processed_files, scale_value, lock, update_listbox_queue, path, imageName, image, similarity):
     temp_dict = {};
     temp_dict[path] = {}
     temp_dict[path][imageName] = {"similarity": similarity, "image": image}
     log_message(temp_dict)
+    #update_listbox_queue.put(temp_dict)
     return temp_dict  # 수정된 딕셔너리 반환
     #local_processed_files[path] = temp  # 변경 사항을 명시적으로 동기화
     log_message("==================================");
@@ -404,7 +431,7 @@ def update_dict_if_higher(my_dict, key, new_value):
         my_dict[key] = new_value    
 
 def find_template_in_image(image_path, mergedImage, PsdPath, NamePath, args):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     # 원본 이미지를 로드합니다.
     main_image = imread_unicode(image_path)
     main_image_gray = cv2.cvtColor(main_image, cv2.COLOR_BGR2GRAY)
@@ -442,7 +469,7 @@ def find_template_in_image(image_path, mergedImage, PsdPath, NamePath, args):
     #global scale_value
     if similarity >= float(scale_value.value):
         log_message(f"similarity: {similarity} scale_value: {scale_value} == OK ==")
-        return update_dict(processed_files, scale_value, PsdPath, NamePath, mergedImage, similarity);
+        return update_dict(processed_files, scale_value, lock, update_listbox_queue, PsdPath, NamePath, mergedImage, similarity);
     else:
         log_message(f"similarity: {similarity} scale_value: {scale_value} == NO ==")
         return {}    
@@ -502,7 +529,7 @@ def calculate_ssim(image1, image2):
 
     return ssim
 
-def compare_images_in_memory(image1_path, image2, PsdPath, NamePath, processed_files, scale_value):
+def compare_images_in_memory(image1_path, image2, PsdPath, NamePath, processed_files, scale_value, lock, update_listbox_queue):
     """PIL과 scikit-image를 사용하여 두 이미지의 유사도를 비교하는 함수"""
     image1_origin, image1_gray = check_and_load_image_pil(image1_path)
     
@@ -532,12 +559,12 @@ def compare_images_in_memory(image1_path, image2, PsdPath, NamePath, processed_f
     #global scale_value
     if similarity >= float(scale_value.value):
         log_message(f"similarity: {similarity} scale_value: {scale_value} == OK ==")
-        return update_dict(processed_files, scale_value, PsdPath, NamePath, none_convert, similarity);
+        return update_dict(processed_files, scale_value, lock, update_listbox_queue, PsdPath, NamePath, none_convert, similarity);
     else:
         log_message(f"similarity: {similarity} scale_value: {scale_value} == NO ==")
         return {}
 
-def compare_images_pil(image1_path, image2_path, ImageName, processed_files, scale_value):
+def compare_images_pil(image1_path, image2_path, ImageName, processed_files, scale_value, lock, update_listbox_queue):
     """ PIL과 scikit-image를 사용하여 두 이미지의 유사도를 비교하는 함수 """
     image1_origin, image1_gray = check_and_load_image_pil(image1_path)
     image2_origin, image2_gray = check_and_load_image_pil(image2_path)
@@ -562,39 +589,41 @@ def compare_images_pil(image1_path, image2_path, ImageName, processed_files, sca
     #global scale_value
     if similarity >= float(scale_value.value):    
         log_message(f"similarity: {similarity} scale_value: {scale_value} == OK ==")
-        return update_dict(processed_files, scale_value, image2_path, ImageName, image2_origin, similarity);
+        return update_dict(processed_files, scale_value, lock, update_listbox_queue, image2_path, ImageName, image2_origin, similarity);
     else:
         log_message(f"similarity: {similarity} scale_value: {scale_value} == NO ==")
         return {}
     
-def process_file(png_file, file_path, log_queue, processed_files, scale_value):
-    args = (log_queue, processed_files, scale_value)
+def process_file(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue):
+    args = (log_queue, processed_files, scale_value, lock, update_listbox_queue)
     if file_path.endswith(".psd"):
         log_message(file_path, log_queue=log_queue)       
         return process_psd_file(file_path, png_file, args)
     elif file_path.endswith((".png", ".jpg", ".jpeg")):
         log_message(file_path, log_queue=log_queue)       
-        return compare_images_pil(png_file, file_path, os.path.basename(file_path), processed_files, scale_value)
+        return compare_images_pil(png_file, file_path, os.path.basename(file_path), processed_files, scale_value, lock, update_listbox_queue)
     #log_message("process_file End", log_queue=log_queue)       
 
-def process_file_wrapper(png_file, file_path, log_queue, processed_files, scale_value, files_processed):
+def process_file_wrapper(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue, files_processed):
     files_processed.value += 1
-    result = process_file(png_file, file_path, log_queue, processed_files, scale_value)
+    result = process_file(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue)
+    # update?
+    update_listbox_queue.put(result)
     return  result
     
 def process_folder_parallel(png_file, folder_path, on_all_threads_completed, args):
     global pool  # 전역 변수로 pool을 선언하여 어디서든 접근 가능하게 합니다.
     local_processed_files = {}
     availableProcess = os.cpu_count()
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
 
-    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files, scale_value, files_processed) 
+    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files, scale_value, lock, update_listbox_queue, files_processed) 
                   for root, _, files in os.walk(folder_path) 
                   for filename in files if filename.endswith((".psd", ".png", ".jpg", ".jpeg"))]
 
-    pool = Pool(processes=availableProcess)
+    pool = multiprocessing.Pool() #Pool(processes=availableProcess)
 
-    with Pool(processes=availableProcess) as pool:
+    with Pool() as pool:
         results = pool.starmap_async(process_file_wrapper, file_paths)
         local_processed_files_list = results.get()  # 모든 작업이 완료될 때까지 기다린 후 결과 수집
     log_message("process_folder_parallel = finish")
@@ -615,35 +644,36 @@ def process_folder_parallel(png_file, folder_path, on_all_threads_completed, arg
             pass
     on_all_threads_completed(args, merged_dict)
     
-def fast_process_file(png_file, file_path, log_queue, processed_files, scale_value):
-    args = (log_queue, processed_files, scale_value)
+def fast_process_file(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue):
+    args = (log_queue, processed_files, scale_value, lock, update_listbox_queue)
     if file_path.endswith(".psd"):
         log_message(file_path, log_queue=log_queue)       
         return process_psd_preview(file_path, png_file, args)
     elif file_path.endswith((".png", ".jpg", ".jpeg")):
         log_message(file_path, log_queue=log_queue)       
-        return compare_images_pil(png_file, file_path, os.path.basename(file_path), processed_files, scale_value)
+        return compare_images_pil(png_file, file_path, os.path.basename(file_path), processed_files, scale_value, lock, update_listbox_queue)
     #log_message("process_file End", log_queue=log_queue)  
 
-def fast_process_file_wrapper(png_file, file_path, log_queue, processed_files, scale_value, files_processed):
+def fast_process_file_wrapper(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue, files_processed):
     files_processed.value += 1
-    result = fast_process_file(png_file, file_path, log_queue, processed_files, scale_value)
+    result = fast_process_file(png_file, file_path, log_queue, processed_files, scale_value, lock, update_listbox_queue)
+    update_listbox_queue.put(result)
     return result
     
 def fast_process_folder_parallel(png_file, folder_path, on_all_threads_completed, args):
     local_processed_files = {}
     global pool  # 전역 변수로 pool을 선언하여 어디서든 접근 가능하게 합니다.
     availableProcess = os.cpu_count()
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
 
-    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files, scale_value, files_processed) 
+    file_paths = [(png_file, os.path.join(root, filename), log_queue, processed_files, scale_value, lock, update_listbox_queue, files_processed) 
                   for root, _, files in os.walk(folder_path) 
                   for filename in files if filename.endswith((".psd", ".png", ".jpg", ".jpeg"))]
 
     # pool 생성
-    pool = Pool(processes=availableProcess)
+    pool = multiprocessing.Pool()#Pool(processes=availableProcess)
 
-    with Pool(processes=availableProcess) as pool:
+    with Pool() as pool:
         results = pool.starmap_async(fast_process_file_wrapper, file_paths)
         local_processed_files_list = results.get()  # 모든 작업이 완료될 때까지 기다린 후 결과 수집
     log_message("fast_process_folder_parallel = finish")
@@ -664,10 +694,13 @@ def fast_process_folder_parallel(png_file, folder_path, on_all_threads_completed
     on_all_threads_completed(args, merged_dict)
     
 def on_all_threads_completed(args, merged_dict):
-    log_queue, processed_files, scale_value = args
+    log_queue, processed_files, scale_value, lock, update_listbox_queue = args
     #log_message("show_processed_files.", log_queue=log_queue)
     show_processed_files(args, merged_dict)
+    while not update_listbox_queue.empty():
+        update_listbox_queue.get()
     label_status.config(text=f"completed")
+    files_processed.value = total_files.value
     tkRoot.update_idletasks()
     progress_bar.stop()  # 프로그레스 바 정지
     progress_bar.pack_forget()  # 프로그레스 바 숨김
@@ -802,6 +835,7 @@ if __name__ == "__main__":
     #last_path_select = manager.Value('S', None)
     processed_files = manager.dict()  # 프로세스 간 공유되는 딕셔너리
     log_queue = manager.Queue()
+    update_listbox_queue = manager.Queue()
     #active_threads = 0
     availableProcess = os.cpu_count()          # CPU 전체개수 조회
     # processPool = ProcessPoolExecutor(availableProcess)     # 사용할 CPU 개수 설정, 논리(logical) CPU당 하나의 worker 
@@ -855,7 +889,7 @@ if __name__ == "__main__":
     # 슬라이더의 초기값을 0.4로 설정
     scale.set(scale_value.value)
 
-    args = (log_queue, processed_files, scale_value)
+    args = (log_queue, processed_files, scale_value, lock, update_listbox_queue)
     log_message("init: " + str(processed_files));
     log_message("init: " + str(log_queue));
     
@@ -897,5 +931,6 @@ if __name__ == "__main__":
     #tkRoot.bind('<Control-Left>', open_in_explorer)
     #tkRoot.after(1000, lambda: update_log_messages(log_queue))
     tkRoot.after(1000, lambda: update_process(files_processed, total_files)) 
+    tkRoot.after(1000, lambda: update_listbox_from_queue())
     update_memory_usage()
     tkRoot.mainloop()
