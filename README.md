@@ -14,3 +14,5 @@
 - 이 도구는 대량의 이미지 데이터에서 유사한 이미지를 효과적으로 탐지하는 데 유용합니다.(폴더 탐색 멀티프로세싱으로 수정해야함)
 
 pyinstaller -F -w searchPSD.py --additional-hooks-dir=.
+
+![image](https://github.com/user-attachments/assets/af59cb01-5cbd-4415-a4b6-336ff621a59e)
